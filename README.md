@@ -1,54 +1,54 @@
-# TIDVIDA T3 protocol research (draft)
+# TIDVIDA T3（涂鸦 Tuya）协议研究
 
-This is an independent, offline decoder for **already captured** DDAP response frames from the TIDVIDA T3 aquarium thermostat. It does not connect to a device or to Tuya, send requests, or control the thermostat. It is a candidate for a separate public repository; it has not been published.
+本仓库提供一个**离线 DDAP 响应解码器**，用于分析已经取得的 TIDVIDA T3 海缸恒温机数据。它不会连接设备或涂鸦云，不会发送查询、设置温度或控制设备。仓库已公开，协议研究仍在进行中。
 
-## What is established
+## 已确认的能力
 
-- The T3's Tuya model exposes ordinary data points 1 (current water temperature), 2 (target temperature), 7 (fault bitmap), 101 (device power), 102 (DDAP request), 103 (DDAP response), and 104 (temperature alarm). Data point 102 carries a raw request, not a power switch.
-- The T3 Android panel resource version 1.1.19 identified the DDAP field names, wire types, scaling, and validity flags listed in `fields.json`. These are observations about this model and panel version, not a protocol guarantee for other devices.
-- Historical response frames matched the 12-byte DDAP header and item structure. Extra measurements are commonly obtained by a DDAP GET request through Tuya's cloud. A response can be old even when the cloud API call itself just succeeded.
-- Device power (DP101) was confirmed with a user-operated App on/off comparison. Cloud set temperature and power have separate field trials. The other App controls have not been mapped to safe, independently verified commands.
+- 涂鸦设备模型包含 DP1 当前水温、DP2 设定温度、DP7 故障位、DP101 设备电源、DP102 DDAP 请求、DP103 DDAP 响应和 DP104 温度报警。DP102 是 RAW 请求容器，不能当作电源开关。
+- T3 安卓面板资源 1.1.19 中的字段定义，与既有历史响应相互核对后，确认了 [fields.json](fields.json) 中 19 个字段的名称、类型、比例和有效性标志。包括双水温探头、舱内/冷热端/主板温度、主泵和风扇转速、环境光、电压、电流、功率及今日用电。
+- 历史帧符合 12 字节 DDAP 帧头及字段项结构。扩展测量通常由面板通过 DDAP GET 取得。云接口刚返回成功，并不代表其中的设备源数据是新鲜的。
+- 用户在涂鸦 App 中开关设备时，DP101 同步变化；云端电源和设温也各有独立现场记录。这些证据**不等于**已验证本地控制。
 
-## Control inventory
+## 控制与仅读参数
 
-| Function | Evidence | Status for this project |
+| 功能 | 已有证据 | 当前结论 |
 | --- | --- | --- |
-| Device power | DP101 model and user-operated App comparison; separate cloud field trial | Known cloud control; local control unavailable |
-| Target water temperature | DP2 model and separate cloud field trial | Known cloud control; local control unavailable |
-| Temperature alarm and fault | DP104 enum and DP7 bitmap model | Readable model fields; fault bit order and live behavior unverified |
-| Pump, fan, temperature mode, display, sound, calibration | Controls visible in the T3 App | DDAP field IDs, ranges, effects, and recovery behavior not verified; no encoder provided |
+| 设备电源 | DP101 模型、用户 App 开关对照及云端现场记录 | 云端控制有证据；本地控制未恢复 |
+| 目标水温 | DP2 模型及云端现场记录 | 云端控制有证据；本地控制未恢复 |
+| 故障、温度报警 | DP7 位图、DP104 枚举 | 模型可读；故障位顺序和实时行为未逐项验收 |
+| 水泵、风扇、温控策略、屏显、提示音、校准 | T3 App 有相应界面 | DDAP 编号、取值范围、效果和恢复语义未验证；本仓库没有控制编码器 |
 
-The App's other controls must be traced to the T3 panel's own request construction and then checked against non-destructive, authorized observations before any control API is proposed.
+其他可控参数需要继续从 **T3 自身的面板请求构造**查明，再用有范围的现场观察核对。不能把界面标签直接当作安全可用的控制命令。
 
-## Offline use
+## 离线使用
+
+需要 Python 3；无需第三方依赖。在仓库根目录运行：
 
 ```sh
 python3 decode.py 44410181000c000100000000
 python3 -m unittest discover -s tests
 ```
 
-The first command is only a structural example with no items. Supply the hexadecimal bytes of a **response you already possess**. Do not publish raw captures without checking for identifiers or household telemetry.
+第一条只是一个**无字段的结构示例**。实际使用时，输入你已经取得的 DDAP DATA 响应帧十六进制字节。公开原始抓包前，请检查是否含设备标识或家庭遥测。
 
-The decoder reports all known fields in the frame and marks readings invalid if their item status is nonzero. Current water temperature and the two speed readings also require a true validity flag in the **same frame**; absent or false flags yield `null`, not zero or a previous reading. The tool does not decide whether a frame is fresh: callers must retain the original source timestamp and reject stale data themselves.
+解码器只输出帧内已知字段。字段状态非零时，读数为 `null`；当前水温及两路转速还要求**同一帧**有为真的有效性标志。标志缺失或为假时也输出 `null`，不会冒充 0 或沿用旧读数。解码器不判断新鲜度：使用者必须保留设备源时间，并自行拒绝过期数据。
 
-## Open work
+## 摆脱涂鸦云的进度
 
-| Route | Current evidence | Missing for cloud independence |
+| 路线 | 目前证据 | 仍需解决 |
 | --- | --- | --- |
-| Tuya LAN 3.5 / TCP 6668 | Was readable earlier; recent connection and handshake attempts failed or were refused | A stable authenticated session and live DDAP read; no further blind retries |
-| Tuya BLE | FD50 advertisements observed; one service discovery failed | Authenticated GATT exchange, T3 data mapping, and safe live read |
-| Device cloud MQTT/TLS | Connection metadata observed | Device trust and protocol access; ordinary Surge HTTPS MITM does not decode MQTT |
-| Tuya cloud API | Full telemetry and power available in field trials | Still depends on account, subscription and API access |
+| 涂鸦 LAN 3.5／TCP 6668 | 早期曾读取成功；近期连接或握手失败、被拒绝 | 稳定认证、实时 DDAP 读取；不盲目重复试连 |
+| 涂鸦 BLE | 观察到 FD50 广播；一次服务发现未完成 | GATT 认证、T3 字段映射和安全的实时读取 |
+| 设备至涂鸦云的 MQTT/TLS | 已看到连接元数据 | 普通 Surge HTTPS MITM 不能直接解码 MQTT |
+| 涂鸦云 API | 已取得完整遥测及电源现场证据 | 仍依赖账号、订阅和 API 权限 |
 
-No local control, HA integration, multi-device compatibility, or ongoing reliability is claimed. Do not use an unverified control path for aquarium safety or maintenance automation.
+目前**没有可用的纯本地控制、HA 集成或多设备兼容保证**。不要用未验证的控制路径承担海缸维护或安全联动。
 
-## Sources
+## 来源与发布边界
 
-- [Tuya MQTT protocol](https://developer.tuya.com/en/docs/iot/MQTT-protocol?id=Kb65nphxrj8f1)
-- [Tuya cloud device model](https://developer.tuya.com/en/docs/iot/equipment-related-interface?id=K9m1dlii6zkf7)
-- [Tuya cloud properties](https://developer.tuya.com/en/docs/cloud/bd68171262?id=Kcp4utbhzzfgo)
-- Field mapping was independently summarized from a locally downloaded T3 panel resource, version 1.1.19, and checked against previously captured frames. The manufacturer's source code and original captures are not included.
+- [涂鸦 Tuya MQTT 协议](https://developer.tuya.com/en/docs/iot/MQTT-protocol?id=Kb65nphxrj8f1)
+- [涂鸦 Tuya 云端设备模型](https://developer.tuya.com/en/docs/iot/equipment-related-interface?id=K9m1dlii6zkf7)
+- [涂鸦 Tuya 云端属性](https://developer.tuya.com/en/docs/cloud/bd68171262?id=Kcp4utbhzzfgo)
+- 字段映射由本机取得的 T3 面板资源 1.1.19 独立整理，并与既有历史帧核对；仓库不包含厂商面板源码或原始抓包。
 
-## Publication boundary
-
-The draft includes no Tuya panel source, account credentials, device identifiers, private packets, or household measurements. Before public release, review the chosen license, provenance of every file, product naming, and at least one independently obtained synthetic or redacted fixture. Manufacturer protocol facts should remain attributed to the observations; this project is unaffiliated with TIDVIDA or Tuya.
+代码以 [MIT 许可](LICENSE)发布。仓库不包含账号密钥、设备标识或家庭原始遥测。本项目与 TIDVIDA、涂鸦 Tuya 均无关联。
